@@ -1,13 +1,11 @@
 package main
 
 import (
-    "context"
     "database/sql"
     "fmt"
     "log"
-    "time"
 
-    _ "github.com/go-sql-driver/mysql"
+    _ "github.com/lib/pq"
 )
 
 type Product struct {
@@ -19,38 +17,36 @@ type Product struct {
 }
 
 func main() {
-    db, err := sql.Open("mysql", "root:password@tcp(localhost:3306)/demo")
+    db, err := sql.Open("postgres", "user=postgres password=yourpassword dbname=demo sslmode=disable")
     if err != nil {
         log.Fatal(err)
     }
     defer db.Close()
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
-    tx, err := db.BeginTx(ctx, nil)
+    tx, err := db.Begin()
     if err != nil {
         log.Fatal(err)
     }
-    defer tx.Rollback() 
-    _, err = tx.ExecContext(ctx, "INSERT INTO Products (Name, Price, CategoryID) VALUES (?, ?, ?)", "New Product", 99.99, 1)
+    defer tx.Rollback()
+    _, err = tx.Exec("INSERT INTO Products (Name, Price, CategoryID) VALUES ($1, $2, (SELECT ID FROM Categories WHERE Name = $3))", "New Product", 99.99, "Electronics")
     if err != nil {
         log.Fatal(err)
     }
     var product Product
-    err = tx.QueryRowContext(ctx, "SELECT p.ID, p.Name, p.Price, c.ID, c.Name FROM Products p JOIN Categories c ON p.CategoryID = c.ID WHERE p.Name = ?", "New Product").Scan(&product.ID, &product.Name, &product.Price, &product.CategoryID, &product.CategoryName)
+    err = tx.QueryRow("SELECT p.ID, p.Name, p.Price, p.CategoryID, c.Name FROM Products p JOIN Categories c ON p.CategoryID = c.ID WHERE p.Name = $1", "New Product").Scan(&product.ID, &product.Name, &product.Price, &product.CategoryID, &product.CategoryName)
     if err != nil {
         log.Fatal(err)
     }
     fmt.Printf("Yangi mahsulot: %+v\n", product)
-    _, err = tx.ExecContext(ctx, "UPDATE Products SET Price = ? WHERE ID = ?", 149.99, product.ID)
+    _, err = tx.Exec("UPDATE Products SET Price = $1 WHERE ID = $2", 149.99, product.ID)
     if err != nil {
         log.Fatal(err)
     }
-    err = tx.QueryRowContext(ctx, "SELECT p.Price, c.Name FROM Products p JOIN Categories c ON p.CategoryID = c.ID WHERE p.ID = ?", product.ID).Scan(&product.Price, &product.CategoryName)
+    err = tx.QueryRow("SELECT p.Price, c.Name FROM Products p JOIN Categories c ON p.CategoryID = c.ID WHERE p.ID = $1", product.ID).Scan(&product.Price, &product.CategoryName)
     if err != nil {
         log.Fatal(err)
     }
-    fmt.Printf("Yangilangan mahsulot: Narx: %.2f, Categoriya: %s\n", product.Price, product.CategoryName)
-    _, err = tx.ExecContext(ctx, "DELETE FROM Products WHERE ID = ?", product.ID)
+    fmt.Printf("Yangilangan mahsulot: Narx: %.2f, Kategoriya: %s\n", product.Price, product.CategoryName)
+    _, err = tx.Exec("DELETE FROM Products WHERE ID = $1", product.ID)
     if err != nil {
         log.Fatal(err)
     }
